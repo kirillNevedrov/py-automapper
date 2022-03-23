@@ -64,7 +64,7 @@ class MappingWrapper(Generic[T]):
             **kwargs - custom mappings and fields overrides
         """
         return self.__mapper._map_common(
-            obj, self.__target_cls, set(), skip_none_values=skip_none_values
+            obj, self.__target_cls, {}, set(), skip_none_values=skip_none_values
         )
 
 
@@ -72,6 +72,7 @@ class Mapper:
     def __init__(self) -> None:
         """Initializes internal containers"""
         self._mappings: Dict[Type[S], Type[T]] = {}  # type: ignore [valid-type]
+        self._custom_mappings: Dict[Type[S], Dict[str, Callable]] = {} 
         self._class_specs: Dict[Type[T], SpecFunction[T]] = {}  # type: ignore [valid-type]
         self._classifier_specs: Dict[  # type: ignore [valid-type]
             ClassifierFunction[T], SpecFunction[T]
@@ -123,7 +124,7 @@ class Mapper:
             raise ValueError("Incorrect type of the classifier argument")
 
     def add(
-        self, source_cls: Type[S], target_cls: Type[T], override: bool = False
+        self, source_cls: Type[S], target_cls: Type[T], custom_mapping: Dict[str, Callable] = {}, override: bool = False
     ) -> None:
         """Adds mapping between object of `source class` to an object of `target class`.
 
@@ -141,6 +142,7 @@ class Mapper:
                 f"source_cls {source_cls} was already added for mapping"
             )
         self._mappings[source_cls] = target_cls
+        self._custom_mappings[source_cls] = custom_mapping
 
     def map(self, obj: object, skip_none_values: bool = False, **kwargs: Any) -> T:
         """Produces output object mapped from source object and custom arguments"""
@@ -151,6 +153,7 @@ class Mapper:
         return self._map_common(
             obj,
             self._mappings[obj_type],
+            self._custom_mappings[obj_type],
             set(),
             skip_none_values=skip_none_values,
             **kwargs,
@@ -185,6 +188,7 @@ class Mapper:
             result = self._map_common(
                 obj,
                 self._mappings[type(obj)],
+                self._custom_mappings[type(obj)],
                 _visited_stack,
                 skip_none_values=skip_none_values,
             )
@@ -219,6 +223,7 @@ class Mapper:
         self,
         obj: S,
         target_cls: Type[T],
+        custom_mapping: Dict[str, Callable],
         _visited_stack: Set[int],
         skip_none_values: bool = False,
         **kwargs: Any,
@@ -252,7 +257,9 @@ class Mapper:
                 else:
                     value = obj[field_name]  # type: ignore [index]
 
-                if value is not None:
+                if field_name in custom_mapping:
+                    mapped_values[field_name] = custom_mapping[field_name](value)
+                elif value is not None:
                     mapped_values[field_name] = self._map_subobject(
                         value, _visited_stack, skip_none_values
                     )
